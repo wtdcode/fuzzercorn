@@ -36,16 +36,7 @@ for _p in _path_list:
     if _fuzzercorn is not None:
         break
 else:
-    raise ImportError("Fail to load the dynamic library for libfuzzer.")
-
-# typedef enum FuzzerCornError {
-#     FUZZERCORN_ERR_OK = 0,
-#     FUZZERCORN_ERR_CALLED_TWICE,
-#     FUZZERCORN_ERR_MEM,
-#     FUZZERCORN_ERR_ARG,
-#     FUZZERCORN_ERR_UC_VER,
-#     FUZZERCORN_ERR_UC_ERR,
-# } FuzzerCornError;
+    raise ImportError("Fail to load the dynamic library for fuzzercorn.")
 
 FUZZERCORN_ERR_OK = 0
 FUZZERCORN_ERR_CALLED_TWICE = 1
