@@ -59,10 +59,10 @@ public:
   }
 
 private:
-  FuzzerCorn();
-  ~FuzzerCorn();
-  FuzzerCorn(const FuzzerCorn &);
-  FuzzerCorn *operator=(const FuzzerCorn &);
+  FuzzerCorn() {}
+  ~FuzzerCorn() {}
+  FuzzerCorn(const FuzzerCorn &) = delete;
+  FuzzerCorn *operator=(const FuzzerCorn &) = delete;
 
   static int InitializeCallbackWrapper_(int *Argc, char ***Argv) {
     FuzzerCorn &fuzzer = FuzzerCorn::Get();
@@ -192,6 +192,10 @@ private:
     // In the fork mode:
     //    TODO!
 
+    if (ExitCount == 0) {
+        return FUZZERCORN_ERR_OK;
+    }
+
     Err = uc_ctl_exits_enable(this->Uc_);
     if (unlikely(Err)) {
       return FUZZERCORN_ERR_UC_ERR;
@@ -241,7 +245,7 @@ FuzzerCornError FuzzerCornFuzz(
     return FUZZERCORN_ERR_CALLED_TWICE;
   }
 
-  if (unlikely(Uc)) {
+  if (unlikely(!Uc)) {
     *ExitCode = 0;
     return FUZZERCORN_ERR_ARG;
   }
