@@ -17,6 +17,8 @@
 #endif
 #endif
 
+#define ERR(...) fprintf(stderr, __VA_ARGS__)
+
 class FuzzerCorn {
 
 public:
@@ -46,10 +48,8 @@ public:
     this->Counters.resize(CounterCount);
     this->Uc_ = Uc;
     this->PrevLoc_ = 0;
-
-    if (unlikely(this->UcSetup_(Exits, ExitCount) != FUZZERCORN_ERR_OK)) {
-      return FUZZERCORN_ERR_UC_ERR;
-    }
+    this->Exits_ = Exits_;
+    this->ExitCount_ = ExitCount;
 
     *ExitCode = LLVMFuzzerRunDriver(
         Argc, Argv, TestOneInputCallbackWrapper_, InitCb, MutCb, CrossCb,
@@ -66,8 +66,17 @@ private:
 
   static int InitializeCallbackWrapper_(int *Argc, char ***Argv) {
     FuzzerCorn &fuzzer = FuzzerCorn::Get();
+    int ret = fuzzer.Init_(fuzzer.Uc_, Argc, Argv, fuzzer.UserData_);
 
-    return fuzzer.Init_(fuzzer.Uc_, Argc, Argv, fuzzer.UserData_);
+    if (ret) {
+        return ret;
+    } else {
+        if (unlikely(fuzzer.UcSetup_(fuzzer.Exits_, fuzzer.ExitCount_) != FUZZERCORN_ERR_OK)) {
+            return -1; // Fail early
+        }
+    }
+
+    return 0;
   }
 
   static size_t MutateCallbackWrapper_(uint8_t *Data, size_t Size,
@@ -122,6 +131,8 @@ private:
 
     Counters[CurLoc ^ fuzzer->PrevLoc_]++;
     fuzzer->PrevLoc_ = CurLoc >> 1;
+
+    //ERR("Block: 0x%lx CurLoc=0x%lx PrevLoc=0x%lx\n", Address, fuzzer->PrevLoc_, CurLoc);
   }
 
   uint64_t GetPc_() {
@@ -217,6 +228,8 @@ private:
   bool IsFuzzing_;
   bool AlwaysValidate_;
   void *UserData_;
+  uint64_t *Exits_;
+  size_t ExitCount_;
   uc_engine *Uc_;
   FuzzerCornInitialize Init_;
   FuzzerCornPlaceInputCallback Input_;
