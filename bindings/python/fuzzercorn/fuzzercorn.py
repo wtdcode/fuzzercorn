@@ -93,20 +93,36 @@ def FuzzerCornFuzz(UC: Uc,
                    AlwaysValidate: bool = False,
                    CountersCount: int = 8192):
     
+    def _ret_none_wrapper(f):
+
+        def _func(*args, **kwargs):
+            ret = f(*args, **kwargs)
+            if ret is None:
+                return 0
+            else:
+                return ret
+        
+        return _func
+
+    @_ret_none_wrapper
     def _validate_wrapper(_: int, err:int, data: PUint8, size: int, __: Any):
         return ValidateCallback(UC, UcError(err), (ctypes.c_uint8 * size).from_address(data), UserData )
 
+    @_ret_none_wrapper
     def _place_input_wrapper(_: int, data: PUint8, size: int, __: Any):
         return PlaceInputCallback(UC, (ctypes.c_uint8 * size).from_address(data), UserData)
 
+    @_ret_none_wrapper
     def _initialize_wrapper(_: int, pargc: PArgcType, pargv: PArgvType, __: Any):
         argc = pargc.contents.value
         argv = (ctypes.c_char_p * (argc + 1)).from_address(ctypes.cast(pargv.contents, ctypes.c_void_p).value)
         return InitializeCallback(UC, argv, UserData)
     
+    @_ret_none_wrapper
     def _custom_mutator_wrapper(_: int, data: PUint8, size: int, max_size: int, seed: int, __: Any):
         return CustomMutatorCallback(UC, (ctypes.c_uint8 * size).from_address(data), max_size, seed, UserData)
     
+    @_ret_none_wrapper
     def _custom_cross_over_wrapper(_: int,
         data1: PUint8, size1: int, 
         data2: PUint8, size2: int, 
@@ -141,11 +157,11 @@ def FuzzerCornFuzz(UC: Uc,
             ctypes.cast(ctypes.addressof(argv), ctypes.c_void_p),
             ctypes.cast(exits, ctypes.c_void_p),
             len(Exits),
-            ctypes.cast(InputCB(_place_input_wrapper), ctypes.c_void_p),
-            ctypes.cast(InitCB(_initialize_wrapper), ctypes.c_void_p),
-            ctypes.cast(ValidateCB(_validate_wrapper), ctypes.c_void_p),
-            ctypes.cast(MutatorCB(_custom_mutator_wrapper), ctypes.c_void_p),
-            ctypes.cast(CrossOverCB(_custom_cross_over_wrapper), ctypes.c_void_p),
+            ctypes.cast(InputCB(_place_input_wrapper), ctypes.c_void_p) if PlaceInputCallback else None,
+            ctypes.cast(InitCB(_initialize_wrapper), ctypes.c_void_p) if InitializeCallback else None,
+            ctypes.cast(ValidateCB(_validate_wrapper), ctypes.c_void_p) if ValidateCallback else None,
+            ctypes.cast(MutatorCB(_custom_mutator_wrapper), ctypes.c_void_p) if CustomMutatorCallback else None,
+            ctypes.cast(CrossOverCB(_custom_cross_over_wrapper), ctypes.c_void_p) if CustomCrossOverCallback else None,
             None,
             AlwaysValidate,
             ctypes.cast(ctypes.addressof(exit_code), ctypes.c_void_p),
