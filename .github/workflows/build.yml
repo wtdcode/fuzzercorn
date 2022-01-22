@@ -1,0 +1,13 @@
+name: Build libfuzzer
+
+on:
+  push:
+
+jobs:
+  Linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Build libfuzzer
+      run: mkdir build && cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build -j 4

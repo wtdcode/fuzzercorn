@@ -1,0 +1,6 @@
+[submodule "libfuzzer"]
+	path = libfuzzer
+	url = https://github.com/wtdcode/libfuzzer
+[submodule "unicorn"]
+	path = unicorn
+	url = https://github.com/unicorn-engine/unicorn
