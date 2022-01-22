@@ -263,7 +263,7 @@ FuzzerCornError FuzzerCornFuzz(
     return FUZZERCORN_ERR_ARG;
   }
 
-  if (unlikely(!Validate)) {
+  if (unlikely(!Input)) {
     *ExitCode = 0;
     return FUZZERCORN_ERR_ARG;
   }
