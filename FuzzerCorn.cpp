@@ -27,12 +27,12 @@ public:
   bool IsFuzzing() { return this->IsFuzzing_; }
 
   FuzzerCornError
-  Fuzz(uc_engine *Uc, int *Argc, char ***Argv,
-       FuzzerCornPlaceInputCallback Input, FuzzerCornInitialize Init,
-       FuzzerCornValidateCallback Validate, FuzzerCornMutatorCallback Mutate,
-       FuzzerCornCrossOverCallback Cross, InstrumentRange *Ranges,
-       size_t RangeCount, void *UserData, bool AlwaysValidate, int *ExitCode,
-       size_t CounterCount) {
+  Fuzz(uc_engine *Uc, int *Argc, char ***Argv, uint64_t *Exits,
+       size_t ExitCount, FuzzerCornPlaceInputCallback Input,
+       FuzzerCornInitialize Init, FuzzerCornValidateCallback Validate,
+       FuzzerCornMutatorCallback Mutate, FuzzerCornCrossOverCallback Cross,
+       InstrumentRange *Ranges, size_t RangeCount, void *UserData,
+       bool AlwaysValidate, int *ExitCode, size_t CounterCount) {
     InitializeCallback InitCb = Init ? InitializeCallbackWrapper_ : nullptr;
     CustomMutatorCallback MutCb = Mutate ? MutateCallbackWrapper_ : nullptr;
     CustomCrossOverCallback CrossCb =
@@ -51,6 +51,8 @@ public:
     this->PrevLoc_ = 0;
     this->Ranges_ = Ranges_;
     this->RangeCount_ = RangeCount;
+    this->Exits_ = Exits;
+    this->ExitCount_ = ExitCount_;
 
     *ExitCode = LLVMFuzzerRunDriver(
         Argc, Argv, TestOneInputCallbackWrapper_, InitCb, MutCb, CrossCb,
@@ -226,6 +228,23 @@ private:
     // In the fork mode:
     //    TODO!
 
+    if (this->ExitCount_ == 0) {
+      return FUZZERCORN_ERR_OK;
+    }
+
+    // Enable multiple exits.
+    Err = uc_ctl_exits_enable(this->Uc_);
+    if (unlikely(Err)) {
+      return FUZZERCORN_ERR_UC_ERR;
+    }
+
+    // Setup exits.
+    V.assign(this->Exits_, this->Exits_ + this->ExitCount_);
+    Err = uc_ctl_set_exits(this->Uc_, (uint64_t *)&V[0], this->ExitCount_);
+    if (unlikely(Err)) {
+      return FUZZERCORN_ERR_UC_ERR;
+    }
+
     return FUZZERCORN_ERR_OK;
   }
 
@@ -237,6 +256,8 @@ private:
   void *UserData_;
   InstrumentRange *Ranges_;
   size_t RangeCount_;
+  uint64_t *Exits_;
+  size_t ExitCount_;
   uc_engine *Uc_;
   FuzzerCornInitialize Init_;
   FuzzerCornPlaceInputCallback Input_;
@@ -252,12 +273,14 @@ private:
 
 FuzzerCorn FuzzerCorn::fuzzer;
 
-FuzzerCornError FuzzerCornFuzz(
-    uc_engine *Uc, int *Argc, char ***Argv, FuzzerCornPlaceInputCallback Input,
-    FuzzerCornInitialize Init, FuzzerCornValidateCallback Validate,
-    FuzzerCornMutatorCallback Mutate, FuzzerCornCrossOverCallback Cross,
-    InstrumentRange *Ranges, size_t RangeCount, void *UserData,
-    bool AlwaysValidate, int *ExitCode, size_t CounterCount) {
+FuzzerCornError
+FuzzerCornFuzz(uc_engine *Uc, int *Argc, char ***Argv, uint64_t *Exits,
+               size_t ExitCount, FuzzerCornPlaceInputCallback Input,
+               FuzzerCornInitialize Init, FuzzerCornValidateCallback Validate,
+               FuzzerCornMutatorCallback Mutate,
+               FuzzerCornCrossOverCallback Cross, InstrumentRange *Ranges,
+               size_t RangeCount, void *UserData, bool AlwaysValidate,
+               int *ExitCode, size_t CounterCount) {
   FuzzerCorn &fuzzer = FuzzerCorn::Get();
 
   if (unlikely(fuzzer.IsFuzzing())) {
@@ -285,7 +308,7 @@ FuzzerCornError FuzzerCornFuzz(
     return FUZZERCORN_ERR_ARG;
   }
 
-  return fuzzer.Fuzz(Uc, Argc, Argv, Input, Init, Validate, Mutate, Cross,
-                     Ranges, RangeCount, UserData, AlwaysValidate, ExitCode,
-                     CounterCount);
+  return fuzzer.Fuzz(Uc, Argc, Argv, Exits, ExitCount, Input, Init, Validate,
+                     Mutate, Cross, Ranges, RangeCount, UserData,
+                     AlwaysValidate, ExitCode, CounterCount);
 }
