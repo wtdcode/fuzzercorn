@@ -72,7 +72,7 @@ PUint8 = ctypes.c_void_p # By design to reduce ctypes.cast
 
 _fuzzercorn.FuzzerCornFuzz.restype = ctypes.c_int
 _fuzzercorn.FuzzerCornFuzz.argtypes = (
-    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, # Uc, Argc, Argv
+    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,  # Uc, Argc, Argv exits
     ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, # Callbacks
     ctypes.c_void_p, ctypes.c_size_t, # Ranges
     ctypes.c_void_p, ctypes.c_bool, ctypes.c_void_p, ctypes.c_size_t) # UserData, AlwaysValidate, ExitCode, CounterCount
@@ -89,6 +89,7 @@ CrossOverCB = ctypes.CFUNCTYPE(ctypes.c_size_t, ctypes.c_void_p,
 
 def FuzzerCornFuzz(UC: Uc, 
                    Argv: List[str],
+                   Exits: List[int],
                    PlaceInputCallback: Callable[[Uc, ctypes.Array, Any], int],
                    InitializeCallback: Callable[[Uc, List[ctypes.c_char_p], Any], int] = None,
                    ValidateCallback: Callable[[Uc, UcError, ctypes.Array], Any] = None,
@@ -157,11 +158,18 @@ def FuzzerCornFuzz(UC: Uc,
         for idx, range in enumerate(Ranges):
             ranges[idx].begin, ranges[idx].end = range
 
+    exits = (ctypes.c_uint64 * len(Exits))()
+     
+    for idx, exit in enumerate(Exits):
+        exits[idx] = exit
+
     exit_code = ctypes.c_int()
 
     err = _fuzzercorn.FuzzerCornFuzz(UC._uch,
             ctypes.cast(ctypes.addressof(argc), ctypes.c_void_p), 
             ctypes.cast(ctypes.addressof(argv), ctypes.c_void_p),
+            ctypes.cast(exits, ctypes.c_void_p),
+            len(Exits),
             ctypes.cast(InputCB(_place_input_wrapper), ctypes.c_void_p) if PlaceInputCallback else None,
             ctypes.cast(InitCB(_initialize_wrapper), ctypes.c_void_p) if InitializeCallback else None,
             ctypes.cast(ValidateCB(_validate_wrapper), ctypes.c_void_p) if ValidateCallback else None,
