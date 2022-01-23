@@ -1,5 +1,5 @@
 import ctypes
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Tuple
 import pkg_resources
 import sys
 import distutils
@@ -61,15 +61,21 @@ class FuzzerCornError(Exception):
         return mp.get(self.errno, f"{self.errno}")
 
 
+class InstrumentRange(ctypes.Structure):
+    _fields_ = [("begin", ctypes.c_uint64),
+                ("end", ctypes.c_uint64)]
+
+
 PArgcType = ctypes.POINTER(ctypes.c_int)
 PArgvType = ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p))
 PUint8 = ctypes.c_void_p # By design to reduce ctypes.cast
 
 _fuzzercorn.FuzzerCornFuzz.restype = ctypes.c_int
 _fuzzercorn.FuzzerCornFuzz.argtypes = (
-    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
-    ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
-    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool, ctypes.c_void_p, ctypes.c_size_t)
+    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, # Uc, Argc, Argv
+    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, # Callbacks
+    ctypes.c_void_p, ctypes.c_size_t, # Ranges
+    ctypes.c_void_p, ctypes.c_bool, ctypes.c_void_p, ctypes.c_size_t) # UserData, AlwaysValidate, ExitCode, CounterCount
 
 InitCB = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, PArgcType, PArgvType, ctypes.c_void_p)
 InputCB = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, PUint8, ctypes.c_size_t, ctypes.c_void_p)
@@ -83,12 +89,12 @@ CrossOverCB = ctypes.CFUNCTYPE(ctypes.c_size_t, ctypes.c_void_p,
 
 def FuzzerCornFuzz(UC: Uc, 
                    Argv: List[str],
-                   Exits: List[int],  
                    PlaceInputCallback: Callable[[Uc, ctypes.Array, Any], int],
                    InitializeCallback: Callable[[Uc, List[ctypes.c_char_p], Any], int] = None,
                    ValidateCallback: Callable[[Uc, UcError, ctypes.Array], Any] = None,
                    CustomMutatorCallback: Callable[[Uc, ctypes.Array, int, int, Any], int] = None,
                    CustomCrossOverCallback: Callable[[Uc, ctypes.Array, ctypes.Array, ctypes.Array, int, Any], int] = None,
+                   Ranges: List[Tuple[int, int]] = None,
                    UserData: Any = None,
                    AlwaysValidate: bool = False,
                    CountersCount: int = 8192):
@@ -144,24 +150,25 @@ def FuzzerCornFuzz(UC: Uc,
     # ctypes.cast(argv, ctypes.c_void_p) -> char** (recall argv was an array!) &(char*[]) -> char**
     argv = ctypes.cast(argv, ctypes.c_void_p)
     # ctypes.cast(argv, ctypes.c_void_p) -> char*** since argv is a pointer now &char** -> char***
-
-    exits = (ctypes.c_uint64 * len(Exits))()
     
-    for idx, exit in enumerate(Exits):
-        exits[idx] = exit
+    if Ranges:
+        ranges = (InstrumentRange * len(Ranges))()
+
+        for idx, range in enumerate(Ranges):
+            ranges[idx].begin, ranges[idx].end = range
 
     exit_code = ctypes.c_int()
 
     err = _fuzzercorn.FuzzerCornFuzz(UC._uch,
             ctypes.cast(ctypes.addressof(argc), ctypes.c_void_p), 
             ctypes.cast(ctypes.addressof(argv), ctypes.c_void_p),
-            ctypes.cast(exits, ctypes.c_void_p),
-            len(Exits),
             ctypes.cast(InputCB(_place_input_wrapper), ctypes.c_void_p) if PlaceInputCallback else None,
             ctypes.cast(InitCB(_initialize_wrapper), ctypes.c_void_p) if InitializeCallback else None,
             ctypes.cast(ValidateCB(_validate_wrapper), ctypes.c_void_p) if ValidateCallback else None,
             ctypes.cast(MutatorCB(_custom_mutator_wrapper), ctypes.c_void_p) if CustomMutatorCallback else None,
             ctypes.cast(CrossOverCB(_custom_cross_over_wrapper), ctypes.c_void_p) if CustomCrossOverCallback else None,
+            ctypes.cast(ctypes.addressof(ranges), ctypes.c_void_p) if Ranges else None,
+            len(Ranges) if Ranges else 0,
             None,
             AlwaysValidate,
             ctypes.cast(ctypes.addressof(exit_code), ctypes.c_void_p),

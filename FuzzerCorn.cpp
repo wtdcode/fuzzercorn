@@ -27,11 +27,12 @@ public:
   bool IsFuzzing() { return this->IsFuzzing_; }
 
   FuzzerCornError
-  Fuzz(uc_engine *Uc, uint64_t *Exits, size_t ExitCount,
-       FuzzerCornInitialize Init, FuzzerCornPlaceInputCallback Input,
+  Fuzz(uc_engine *Uc, int *Argc, char ***Argv,
+       FuzzerCornPlaceInputCallback Input, FuzzerCornInitialize Init,
        FuzzerCornValidateCallback Validate, FuzzerCornMutatorCallback Mutate,
-       FuzzerCornCrossOverCallback Cross, void *UserData, bool AlwaysValidate,
-       int *Argc, char ***Argv, int *ExitCode, size_t CounterCount) {
+       FuzzerCornCrossOverCallback Cross, InstrumentRange *Ranges,
+       size_t RangeCount, void *UserData, bool AlwaysValidate, int *ExitCode,
+       size_t CounterCount) {
     InitializeCallback InitCb = Init ? InitializeCallbackWrapper_ : nullptr;
     CustomMutatorCallback MutCb = Mutate ? MutateCallbackWrapper_ : nullptr;
     CustomCrossOverCallback CrossCb =
@@ -44,12 +45,12 @@ public:
     this->Validate_ = Validate;
     this->Mutate_ = Mutate;
     this->Cross_ = Cross;
-    this->CounterCount = CounterCount;
+    this->CounterCount_ = CounterCount;
     this->Counters.resize(CounterCount);
     this->Uc_ = Uc;
     this->PrevLoc_ = 0;
-    this->Exits_ = Exits_;
-    this->ExitCount_ = ExitCount;
+    this->Ranges_ = Ranges_;
+    this->RangeCount_ = RangeCount;
 
     *ExitCode = LLVMFuzzerRunDriver(
         Argc, Argv, TestOneInputCallbackWrapper_, InitCb, MutCb, CrossCb,
@@ -69,11 +70,11 @@ private:
     int ret = fuzzer.Init_(fuzzer.Uc_, Argc, Argv, fuzzer.UserData_);
 
     if (ret) {
-        return ret;
+      return ret;
     } else {
-        if (unlikely(fuzzer.UcSetup_(fuzzer.Exits_, fuzzer.ExitCount_) != FUZZERCORN_ERR_OK)) {
-            return -1; // Fail early
-        }
+      if (unlikely(fuzzer.UcSetup_() != FUZZERCORN_ERR_OK)) {
+        return -1; // Fail early
+      }
     }
 
     return 0;
@@ -126,13 +127,14 @@ private:
                            void *UserData) {
     FuzzerCorn *fuzzer = (FuzzerCorn *)UserData;
     uint64_t CurLoc =
-        ((Address >> 4) ^ (Address << 8)) & (fuzzer->CounterCount - 7);
+        ((Address >> 4) ^ (Address << 8)) & (fuzzer->CounterCount_ - 7);
     uint8_t *Counters = &fuzzer->Counters[0];
 
     Counters[CurLoc ^ fuzzer->PrevLoc_]++;
     fuzzer->PrevLoc_ = CurLoc >> 1;
 
-    //ERR("Block: 0x%lx CurLoc=0x%lx PrevLoc=0x%lx\n", Address, fuzzer->PrevLoc_, CurLoc);
+    // ERR("Block: 0x%lx CurLoc=0x%lx PrevLoc=0x%lx\n", Address,
+    // fuzzer->PrevLoc_, CurLoc);
   }
 
   uint64_t GetPc_() {
@@ -177,7 +179,7 @@ private:
     return PC;
   }
 
-  FuzzerCornError UcSetup_(uint64_t *Exits, size_t ExitCount) {
+  FuzzerCornError UcSetup_() {
     uc_err Err;
     uint32_t Ver;
     std::vector<uint64_t> V;
@@ -189,11 +191,32 @@ private:
       return FUZZERCORN_ERR_UC_VER;
     }
 
-    // For coverage.
-    Err = uc_hook_add(this->Uc_, &this->H1_, UC_HOOK_BLOCK,
-                      (void *)UcHookBlock_, (void *)this, 1, 0);
-    if (unlikely(Err)) {
-      return FUZZERCORN_ERR_UC_ERR;
+    if (likely(!this->Ranges_)) {
+
+      this->Hooks_.resize(1);
+
+      // For coverage.
+      Err = uc_hook_add(this->Uc_, &this->Hooks_[0], UC_HOOK_BLOCK,
+                        (void *)UcHookBlock_, (void *)this, 1, 0);
+      if (unlikely(Err)) {
+        return FUZZERCORN_ERR_UC_ERR;
+      }
+    } else {
+      uint64_t begin, end;
+
+      this->Hooks_.resize(this->RangeCount_);
+
+      for (int i = 0; i < this->RangeCount_; i++) {
+        begin = this->Ranges_[i].begin;
+        end = this->Ranges_[i].end;
+
+        Err = uc_hook_add(this->Uc_, &this->Hooks_[i], UC_HOOK_BLOCK,
+                          (void *)UcHookBlock_, (void *)this, begin, end);
+
+        if (unlikely(Err)) {
+          return FUZZERCORN_ERR_UC_ERR;
+        }
+      }
     }
 
     // Seems that we don't need to cache TB?
@@ -202,22 +225,6 @@ private:
     //
     // In the fork mode:
     //    TODO!
-
-    if (ExitCount == 0) {
-        return FUZZERCORN_ERR_OK;
-    }
-
-    Err = uc_ctl_exits_enable(this->Uc_);
-    if (unlikely(Err)) {
-      return FUZZERCORN_ERR_UC_ERR;
-    }
-
-    // Setup exits.
-    V.assign(Exits, Exits + ExitCount);
-    Err = uc_ctl_set_exits(this->Uc_, (uint64_t *)&V[0], ExitCount);
-    if (unlikely(Err)) {
-      return FUZZERCORN_ERR_UC_ERR;
-    }
 
     return FUZZERCORN_ERR_OK;
   }
@@ -228,8 +235,8 @@ private:
   bool IsFuzzing_;
   bool AlwaysValidate_;
   void *UserData_;
-  uint64_t *Exits_;
-  size_t ExitCount_;
+  InstrumentRange *Ranges_;
+  size_t RangeCount_;
   uc_engine *Uc_;
   FuzzerCornInitialize Init_;
   FuzzerCornPlaceInputCallback Input_;
@@ -238,19 +245,19 @@ private:
   FuzzerCornCrossOverCallback Cross_;
 
   std::vector<uint8_t> Counters;
-  size_t CounterCount; // For faster access
+  size_t CounterCount_; // For faster access
   uint64_t PrevLoc_;
-  uc_hook H1_;
+  std::vector<uc_hook> Hooks_;
 };
 
 FuzzerCorn FuzzerCorn::fuzzer;
 
 FuzzerCornError FuzzerCornFuzz(
-    uc_engine *Uc, int *Argc, char ***Argv, uint64_t *Exits, size_t ExitCount,
-    FuzzerCornPlaceInputCallback Input, FuzzerCornInitialize Init, 
-    FuzzerCornValidateCallback Validate, FuzzerCornMutatorCallback Mutate,
-    FuzzerCornCrossOverCallback Cross, void *UserData, bool AlwaysValidate,
-    int *ExitCode, size_t CounterCount) {
+    uc_engine *Uc, int *Argc, char ***Argv, FuzzerCornPlaceInputCallback Input,
+    FuzzerCornInitialize Init, FuzzerCornValidateCallback Validate,
+    FuzzerCornMutatorCallback Mutate, FuzzerCornCrossOverCallback Cross,
+    InstrumentRange *Ranges, size_t RangeCount, void *UserData,
+    bool AlwaysValidate, int *ExitCode, size_t CounterCount) {
   FuzzerCorn &fuzzer = FuzzerCorn::Get();
 
   if (unlikely(fuzzer.IsFuzzing())) {
@@ -278,7 +285,7 @@ FuzzerCornError FuzzerCornFuzz(
     return FUZZERCORN_ERR_ARG;
   }
 
-  return fuzzer.Fuzz(Uc, Exits, ExitCount, Init, Input, Validate, Mutate, Cross,
-                     UserData, AlwaysValidate, Argc, Argv, ExitCode,
+  return fuzzer.Fuzz(Uc, Argc, Argv, Input, Init, Validate, Mutate, Cross,
+                     Ranges, RangeCount, UserData, AlwaysValidate, ExitCode,
                      CounterCount);
 }
