@@ -44,14 +44,19 @@ typedef size_t (*FuzzerCornCrossOverCallback)(uc_engine *Uc,
     const uint8_t *Data1, size_t Size1, const uint8_t *Data2, size_t Size2,
     uint8_t *Out, size_t MaxOutSize, unsigned int Seed, void *UserData);
 
+typedef struct {
+    uint64_t begin;
+    uint64_t end;
+} InstrumentRange;
+
 FUZZER_INTERFACE_VISIBILITY FuzzerCornError
 FuzzerCornFuzz(uc_engine *Uc, int *Argc, char ***Argv, 
-               uint64_t *Exits, size_t ExitCount,
                FuzzerCornPlaceInputCallback Input,
                FuzzerCornInitialize Init,
                FuzzerCornValidateCallback Validate,
                FuzzerCornMutatorCallback Mutate,
                FuzzerCornCrossOverCallback Cross,
+               InstrumentRange *Ranges, size_t RangeCount,
                void *UserData, bool AlwaysValidate,
                int *ExitCode, size_t CounterCount);
 
