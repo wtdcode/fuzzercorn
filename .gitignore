@@ -7,3 +7,5 @@ crash-*
 *.pyc
 *.so
 *.dylib
+bindings/python/fuzzercorn/include/
+bindings/python/fuzzercorn/lib
